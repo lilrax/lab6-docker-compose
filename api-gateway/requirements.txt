@@ -1,7 +1,13 @@
+
+# FastAPI — фреймворк для создания нашего API Gateway.
 fastapi>=0.116
-uvicorn[standard]>=0.35
+
+# Uvicorn — сервер для запуска приложения FastAPI.
+# Используем базовую версию без дополнительных пакетов standard.
+uvicorn>=0.35
+
+# HTTPX — библиотека для отправки HTTP-запросов к Storage Service.
 httpx>=0.28
+
+# Pydantic Settings — загрузка конфигурации из переменных окружения.
 pydantic-settings>=2.0
-pytest>=8.0
-pytest-cov>=5.0
-ruff>=0.12

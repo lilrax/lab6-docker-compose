@@ -1,7 +1,12 @@
+
+# FastAPI — фреймворк для создания API.
 fastapi>=0.116
-uvicorn[standard]>=0.35
+
+# Uvicorn — сервер для запуска FastAPI.
+uvicorn>=0.35
+
+# Pydantic Settings — работа с конфигурацией приложения.
 pydantic-settings>=2.0
+
+# HTTPX — библиотека для HTTP-запросов.
 httpx>=0.28
-pytest>=8.0
-pytest-cov>=5.0
-ruff>=0.12
