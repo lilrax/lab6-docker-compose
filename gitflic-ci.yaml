@@ -1,0 +1,29 @@
+
+# Запускаем автоматические проверки двух микросервисов.
+stages:
+  - test
+
+# Используем Python 3.12, как в Docker и задании.
+image: python:3.12-slim
+
+# Проверяем API Gateway.
+api-gateway-checks:
+  stage: test
+  script:
+    - cd api-gateway
+    - python -m venv .venv
+    - .venv/bin/python -m pip install -r requirements-dev.txt
+    - .venv/bin/python -m ruff check .
+    - .venv/bin/python -m mypy .
+    - .venv/bin/python -m pytest -q
+
+# Проверяем Storage Service.
+storage-checks:
+  stage: test
+  script:
+    - cd storage
+    - python -m venv .venv
+    - .venv/bin/python -m pip install -r requirements-dev.txt
+    - .venv/bin/python -m ruff check .
+    - .venv/bin/python -m mypy .
+    - .venv/bin/python -m pytest -q
