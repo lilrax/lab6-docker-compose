@@ -1,0 +1,63 @@
+
+# Название конвейера автоматической проверки.
+name: lab6-ci
+
+# Запускаем проверки после отправки изменений
+# в ветку main и при создании Pull Request.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Описываем задачу проверки двух микросервисов.
+jobs:
+  checks:
+
+    # Проверки выполняются на Linux.
+    runs-on: ubuntu-latest
+
+    # Проверяем каждый микросервис отдельно.
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api-gateway, storage]
+
+    steps:
+      # Скачиваем исходный код репозитория.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Устанавливаем Python версии 3.12.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Создаём чистое виртуальное окружение.
+      # Устанавливаем зависимости и инструменты тестирования.
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-dev.txt
+
+      # Проверяем стиль и качество Python-кода.
+      - name: Ruff
+        working-directory: ${{ matrix.service }}
+        run: .venv/bin/python -m ruff check .
+
+      # Проверяем аннотации типов.
+      - name: Mypy
+        working-directory: ${{ matrix.service }}
+        run: .venv/bin/python -m mypy .
+
+      # Запускаем автоматические тесты.
+      - name: Pytest
+        working-directory: ${{ matrix.service }}
+        run: .venv/bin/python -m pytest -q
+
+      # Собираем Docker-образ микросервиса.
+      # Этот шаг выполнится, только если проверки прошли.
+      - name: Docker build
+        run: docker build -t lab6-${{ matrix.service }}:ci ./${{ matrix.service }}

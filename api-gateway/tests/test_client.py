@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
@@ -20,7 +21,7 @@ def make_repository(
 ) -> HttpItemRepository:
     original_client = httpx.Client
 
-    def fake_client(*args: object, **kwargs: object) -> httpx.Client:
+    def fake_client(*args: Any, **kwargs: Any) -> httpx.Client:
         return original_client(
             *args,
             transport=httpx.MockTransport(handler),
