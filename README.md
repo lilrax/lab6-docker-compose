@@ -1,828 +1,594 @@
-# Лабораторная работа №5 — Микросервисы на Python
 
-## 1. Описание проекта
+# Лабораторная работа №6 — Контейнеризация и CI: Docker, Docker Compose и GitHub Actions
 
-Проект представляет собой систему из двух независимых Python-микросервисов, реализованных с помощью FastAPI. Сервисы взаимодействуют по HTTP в формате JSON.
+Проект является продолжением лабораторной работы №5 по разработке микросервисной архитектуры на Python.
 
-Система предназначена для создания товаров и получения информации о них. Каждый товар имеет идентификатор `id`, название `name`, цену `price` и количество `quantity`.
+Два независимых микросервиса на FastAPI контейнеризированы с помощью Docker, объединены через Docker Compose и автоматически проверяются с помощью GitHub Actions.
 
-В проект входят:
+## Репозитории проекта
 
-- **API Gateway** — точка входа для клиента. Принимает HTTP-запросы, проверяет входные данные, применяет бизнес-правила и вызывает Storage Service.
-- **Storage Service** — сервис хранения данных. Принимает запросы от API Gateway и сохраняет товары в базе данных SQLite.
+- GitFlic: https://gitflic.ru/project/lilrax/lab6-docker-compose
+- GitHub: https://github.com/lilrax/lab6-docker-compose
+- GitHub Actions: https://github.com/lilrax/lab6-docker-compose/actions
 
-Каждый сервис запускается в отдельном процессе, имеет собственные зависимости, настройки, виртуальное окружение и тесты.
+[![lab6-ci](https://github.com/lilrax/lab6-docker-compose/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lilrax/lab6-docker-compose/actions/workflows/ci.yml)
 
-**Репозиторий GitFlic:** https://gitflic.ru/project/lilrax/lab5-microservices-manual
+## 1. Цель работы
 
-## 2. Используемые технологии
+Изучить технологии контейнеризации приложений, организовать совместный запуск микросервисов с помощью Docker Compose и настроить автоматический конвейер проверки и сборки проекта через GitHub Actions.
+
+Основные задачи:
+
+- Создать многостадийные Dockerfile.
+- Уменьшить размер итоговых Docker-образов.
+- Обеспечить запуск приложений от непривилегированного пользователя.
+- Организовать взаимодействие микросервисов через сеть Docker.
+- Настроить постоянное хранение данных.
+- Реализовать healthcheck для обоих сервисов.
+- Настроить конфигурацию через переменные окружения.
+- Автоматизировать проверки Ruff, mypy и pytest.
+- Настроить автоматическую сборку Docker-образов.
+
+## 2. Описание проекта
+
+Проект представляет собой систему из двух независимых Python-микросервисов, реализованных с помощью FastAPI.
+
+Система предназначена для создания товаров и получения информации о них.
+
+Каждый товар содержит:
+
+- id — уникальный идентификатор;
+- name — название товара;
+- price — цена;
+- quantity — количество.
+
+### API Gateway
+
+API Gateway является точкой входа для клиента.
+
+Основные функции:
+
+- Приём HTTP-запросов.
+- Валидация входных данных.
+- Проверка бизнес-правил.
+- Взаимодействие со Storage Service.
+- Обработка сетевых ошибок.
+- Возвращение HTTP-ответов клиенту.
+
+### Storage Service
+
+Storage Service отвечает за хранение данных.
+
+Основные функции:
+
+- Создание товаров.
+- Получение товаров по идентификатору.
+- Работа с базой данных SQLite.
+- Обеспечение сохранности данных.
+
+API Gateway не обращается к базе данных напрямую. Все операции с данными выполняются через Storage Service.
+
+## 3. Используемые технологии
 
 | Технология | Назначение |
 |---|---|
-| Python 3 | Язык программирования; при итоговой проверке использовался Python 3.14.3 |
-| FastAPI | Реализация REST API обоих микросервисов |
-| Uvicorn | ASGI-сервер для запуска приложений |
-| Pydantic | Описание и валидация моделей запросов и ответов |
-| pydantic-settings | Чтение и проверка конфигурации из `.env` и переменных окружения |
-| httpx | HTTP-клиент для связи API Gateway со Storage Service |
-| SQLite (`sqlite3`) | Постоянное хранение товаров в отдельном файле БД |
+| Python 3.12 | Среда исполнения Docker и CI |
+| FastAPI | Реализация REST API |
+| Uvicorn | ASGI-сервер |
+| Pydantic | Валидация данных |
+| pydantic-settings | Управление конфигурацией |
+| httpx | Межсервисное взаимодействие |
+| SQLite | Хранение данных |
+| Docker | Контейнеризация приложений |
+| Docker Compose | Совместный запуск контейнеров |
+| Docker Volume | Постоянное хранение данных |
+| Ruff | Проверка качества кода |
+| mypy | Статическая проверка типов |
 | pytest | Автоматическое тестирование |
-| pytest-cov | Измерение покрытия кода тестами |
-| Ruff | Проверка стиля, импортов и форматирование кода |
-| Git / GitFlic | Контроль версий и публикация проекта |
+| pytest-cov | Измерение покрытия тестами |
+| GitHub Actions | Автоматический конвейер CI |
+| Git | Контроль версий |
+| GitFlic | Основной репозиторий проекта |
+| GitHub | Репозиторий для CI |
 
-## 3. Архитектура и взаимодействие сервисов
+Локальные проверки в Windows выполнялись с Python 3.14.3.
+
+В Docker-контейнерах и GitHub Actions используется Python 3.12.
+
+## 4. Архитектура системы
 
 ```text
-                      HTTP / JSON
-Клиент (браузер, Swagger UI, PowerShell)
-                       |
-                       v
-             +--------------------+
-             |    API Gateway     |
-             |   127.0.0.1:8000   |
-             |  api -> domain ->  |
-             | HTTP client (httpx)|
-             +--------------------+
-                       |
-                       | HTTP / JSON, timeout
-                       v
-             +--------------------+
-             |   Storage Service  |
-             |   127.0.0.1:8001   |
-             |  api -> domain ->  |
-             | SQLite repository  |
-             +--------------------+
-                       |
-                       v
-                 SQLite database
-                storage/data/items.db
+             Client / Swagger UI
+                      |
+                      | HTTP
+                      | localhost:8080
+                      v
++------------------------------------------+
+|          Docker Compose Network          |
+|                                          |
+|   +----------------------------------+   |
+|   |           API Gateway            |   |
+|   |           gateway:8000           |   |
+|   +----------------------------------+   |
+|                    |                     |
+|                    | HTTP / JSON         |
+|                    v                     |
+|   +----------------------------------+   |
+|   |          Storage Service         |   |
+|   |           storage:8001           |   |
+|   +----------------------------------+   |
+|                    |                     |
+|                    v                     |
+|   +----------------------------------+   |
+|   |             SQLite               |   |
+|   |       /app/data/items.db         |   |
+|   +----------------------------------+   |
++--------------------|---------------------+
+                     |
+                     v
+          +------------------------+
+          |      Docker Volume     |
+          |   lab6-storage-data    |
+          +------------------------+
 ```
 
-Порядок обработки создания товара:
-
-1. Клиент отправляет `POST /items` в API Gateway на порт `8000`.
-2. Pydantic проверяет формат входного JSON.
-3. Доменный слой API Gateway проверяет бизнес-правила.
-4. HTTP-клиент на `httpx` отправляет запрос в Storage Service на порт `8001`.
-5. Storage Service сохраняет запись в SQLite и возвращает созданный товар с `id`.
-6. API Gateway возвращает клиенту согласованный JSON-ответ и код `201 Created`.
-
-При чтении товара выполняется аналогичная цепочка через `GET /items/{item_id}`. API Gateway не обращается к SQLite напрямую: за данные отвечает Storage Service.
-
-Подробное объяснение границ и слоёв приведено в [docs/architecture.md](docs/architecture.md).
-
-## 4. Структура проекта
+Внутри сети Docker API Gateway обращается к Storage Service по адресу:
 
 ```text
-lab5-microservices-manual/
-|-- .gitignore
-|-- README.md
+http://storage:8001
+```
+
+Вместо localhost используется имя сервиса Docker Compose.
+
+Каждый микросервис содержит собственные зависимости, настройки, Dockerfile и автоматические тесты.
+
+### Слоистая архитектура
+
+В каждом сервисе выделены следующие слои:
+
+- `api` — HTTP-маршруты, схемы и обработка запросов.
+- `domain` — бизнес-логика, модели и интерфейсы.
+- `storage` — реализация доступа к данным.
+
+Используются следующие архитектурные паттерны:
+
+- Repository Pattern.
+- Dependency Injection.
+- Ports and Adapters.
+
+В API Gateway используется HttpItemRepository.
+
+В Storage Service используется SQLiteItemRepository.
+
+Подробное описание архитектуры находится в файле [docs/architecture.md](docs/architecture.md).
+
+SQLite является встроенной файловой базой данных внутри Storage Service. Отдельный контейнер серверной СУБД в текущей реализации отсутствует. Доступ к хранилищу осуществляется через отдельный HTTP-микросервис, а постоянное хранение файла базы обеспечивается Docker Volume.
+
+## 5. Структура проекта
+
+```text
+lab6-docker-compose/
+|
+|-- .github/
+|   `-- workflows/
+|       `-- ci.yml
+|
+|-- api-gateway/
+|   |-- app/
+|   |   |-- api/
+|   |   |-- domain/
+|   |   |-- storage/
+|   |   |-- config.py
+|   |   `-- main.py
+|   |
+|   |-- tests/
+|   |   |-- conftest.py
+|   |   |-- test_api.py
+|   |   |-- test_client.py
+|   |   `-- test_domain.py
+|   |
+|   |-- .dockerignore
+|   |-- .env.example
+|   |-- Dockerfile
+|   |-- mypy.ini
+|   |-- requirements.txt
+|   |-- requirements-dev.txt
+|   `-- run.py
+|
+|-- storage/
+|   |-- app/
+|   |   |-- api/
+|   |   |-- domain/
+|   |   |-- storage/
+|   |   |-- config.py
+|   |   `-- main.py
+|   |
+|   |-- data/
+|   |   `-- .gitkeep
+|   |
+|   |-- tests/
+|   |   |-- conftest.py
+|   |   |-- test_api.py
+|   |   `-- test_domain.py
+|   |
+|   |-- .dockerignore
+|   |-- .env.example
+|   |-- Dockerfile
+|   |-- mypy.ini
+|   |-- requirements.txt
+|   |-- requirements-dev.txt
+|   `-- run.py
+|
 |-- docs/
 |   `-- architecture.md
-|-- api-gateway/
-|   |-- .env.example
-|   |-- requirements.txt
-|   |-- run.py
-|   |-- app/
-|   |   |-- __init__.py
-|   |   |-- config.py
-|   |   |-- main.py
-|   |   |-- api/
-|   |   |   |-- __init__.py
-|   |   |   |-- routes.py
-|   |   |   `-- schemas.py
-|   |   |-- domain/
-|   |   |   |-- __init__.py
-|   |   |   |-- errors.py
-|   |   |   |-- models.py
-|   |   |   |-- ports.py
-|   |   |   `-- services.py
-|   |   `-- storage/
-|   |       |-- __init__.py
-|   |       `-- client.py
-|   `-- tests/
-|       |-- test_api.py
-|       |-- test_client.py
-|       `-- test_domain.py
-`-- storage/
-    |-- .env.example
-    |-- requirements.txt
-    |-- run.py
-    |-- app/
-    |   |-- __init__.py
-    |   |-- config.py
-    |   |-- main.py
-    |   |-- api/
-    |   |   |-- __init__.py
-    |   |   |-- routes.py
-    |   |   `-- schemas.py
-    |   |-- domain/
-    |   |   |-- __init__.py
-    |   |   |-- models.py
-    |   |   |-- ports.py
-    |   |   `-- services.py
-    |   `-- storage/
-    |       |-- __init__.py
-    |       `-- repository.py
-    |-- data/
-    |   `-- .gitkeep
-    `-- tests/
-        |-- test_api.py
-        `-- test_domain.py
+|
+|-- .gitignore
+|-- compose.yaml
+`-- README.md
 ```
 
-При настройке проекта локально также создаются `api-gateway/.venv/`, `storage/.venv/`, файлы `.env`, `.coverage`, кэши инструментов и `storage/data/items.db`. Они не должны попадать в Git и исключены через `.gitignore`. Файл `.gitkeep` сохраняет пустую папку `data` в репозитории.
+Локальная папка проекта может сохранять название `lab5-microservices-manual`, поскольку проект создан на основе предыдущей лабораторной работы.
 
-## 5. Требования к окружению
+## 6. Требования к окружению
 
-Для запуска понадобятся:
+Для запуска проекта через Docker необходимы:
 
-- Windows 10/11 с Windows PowerShell;
-- установленный Python 3 и Python Launcher (`py`);
-- Git (для клонирования и обновления проекта);
-- доступ к интернету при первоначальной установке зависимостей.
+- Docker Desktop или Docker Engine.
+- Docker Compose v2.
+- Git.
+- Доступ к интернету для первоначальной сборки образов.
 
-**Важно:** на компьютере, где проводилась последняя проверка, команда `py -3 --version` показала **Python 3.14.3**. Проект и оба набора тестов были успешно запущены на этой версии.
+Установка Python на компьютер для контейнерного запуска не требуется.
 
-`py -3` означает «выбрать установленный Python 3», а не «обязательно Python 3.10 или 3.12». На другом компьютере будет выбрана версия, доступная через Python Launcher. Конкретную версию всегда проверяйте перед созданием окружения.
+Для локального запуска тестов необходим Python для Windows.
 
-### 5.1. Проверка версии Python
-
-Откройте Windows PowerShell:
+### Проверка Docker
 
 ```powershell
-py --list
-py -3 --version
+docker --version
+docker compose version
+docker info
 ```
 
-Ожидаемый результат для компьютера, на котором выполнялась проверка:
+### Проверка Python
+
+```powershell
+py -0p
+```
+
+При локальном выполнении лабораторной использовался Python 3.14.3.
+
+## 7. Запуск проекта через Docker Compose
+
+### 7.1. Клонирование репозитория
+
+```powershell
+git clone https://gitflic.ru/project/lilrax/lab6-docker-compose.git
+cd lab6-docker-compose
+```
+
+Если проект уже скачан, достаточно открыть терминал в корневой папке проекта.
+
+### 7.2. Создание Docker Volume
+
+Перед первым запуском необходимо создать постоянный том для базы данных SQLite.
+
+```powershell
+docker volume create lab6-storage-data
+```
+
+Том используется для хранения базы данных независимо от жизненного цикла контейнеров.
+
+### 7.3. Сборка и запуск контейнеров
+
+```powershell
+docker compose up --build -d --wait
+```
+
+Описание параметров:
+
+- `--build` — сборка Docker-образов.
+- `-d` — запуск контейнеров в фоновом режиме.
+- `--wait` — ожидание готовности сервисов.
+
+### 7.4. Проверка состояния контейнеров
+
+```powershell
+docker compose ps
+```
+
+Ожидаемый результат:
 
 ```text
-Python 3.14.3
+SERVICE    STATUS
+gateway    Up (healthy)
+storage    Up (healthy)
 ```
 
-В данном проекте **не требуется команда** `py -3.12`: на проверяемой машине такая версия не была зарегистрирована в Python Launcher.
+Оба микросервиса должны иметь статус healthy.
 
-### 5.2. Важное замечание для Windows: MSYS и виртуальные окружения
+### 7.5. Адреса сервисов
 
-На проверяемом компьютере обычная команда `python` указывала на:
-
-```text
-C:\msys64\ucrt64\bin\python.exe
-```
-
-При выполнении `python -m venv .venv` создавалось окружение с Unix-структурой (`bin`, `include`, `lib`) вместо Windows-структуры с `Scripts`. Поэтому путь `.\.venv\Scripts\python.exe` не существовал.
-
-**Рабочее решение:** для создания виртуальных окружений использовать `py -3 -m venv .venv`, а затем вызывать Python из созданного окружения по прямому пути `.\.venv\Scripts\python.exe`.
-
-Это исключает случайное использование другого Python из `PATH`.
-
-## 6. Установка и настройка в Windows PowerShell
-
-Ниже приведены команды, по которым проект был успешно запущен после скачивания из GitFlic. Команды выполняются отдельно для каждого микросервиса.
-
-### 6.1. Получение проекта
-
-Если репозиторий ещё не скачан:
-
-```powershell
-cd C:\Users\admin\Downloads
-git clone https://gitflic.ru/project/lilrax/lab5-microservices-manual.git
-cd .\lab5-microservices-manual
-```
-
-Если папка проекта уже скачана, клонировать её повторно не нужно. Перейдите прямо в её корень:
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual
-```
-
-**Примечание:** `C:\Users\admin\Downloads\...` — пример фактического пути с проверочного компьютера. Если проект находится в другой папке, замените путь на свой.
-
-### 6.2. Настройка Storage Service (порт 8001)
-
-В корне проекта выполните:
-
-```powershell
-cd .\storage
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe --version
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-```
-
-Команду `Copy-Item` достаточно выполнить один раз. Если `.env` уже существует и содержит ваши настройки, не перезаписывайте его без необходимости.
-
-Проверьте окружение:
-
-```powershell
-Test-Path .\.venv\Scripts\python.exe
-```
-
-Результат `True` означает, что Windows-интерпретатор виртуального окружения найден.
-
-Настройки Storage Service хранятся в файле `storage/.env` и считываются с помощью `pydantic-settings`. Для локальной демонстрации сервис должен запускаться по адресу `127.0.0.1:8001`; файл базы данных расположен в `storage/data/`.
-
-### 6.3. Настройка API Gateway (порт 8000)
-
-После настройки Storage Service перейдите из папки `storage` в `api-gateway`:
-
-```powershell
-cd ..\api-gateway
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe --version
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
-```
-
-Проверка окружения:
-
-```powershell
-Test-Path .\.venv\Scripts\python.exe
-```
-
-В `api-gateway/.env` настраиваются адрес и порт Gateway, URL соседнего сервиса, таймаут HTTP-запроса и уровень логирования. При локальном запуске используются такие значения:
-
-| Настройка API Gateway | Значение |
+| Сервис | Адрес |
 |---|---|
-| `GATEWAY_HOST` | `127.0.0.1` |
-| `GATEWAY_PORT` | `8000` |
-| `GATEWAY_STORAGE_URL` | `http://127.0.0.1:8001` |
-| `GATEWAY_REQUEST_TIMEOUT` | `5.0` |
-| `GATEWAY_LOG_LEVEL` | `info` |
+| API Gateway | http://localhost:8080 |
+| API Gateway Swagger UI | http://localhost:8080/docs |
+| API Gateway OpenAPI | http://localhost:8080/openapi.json |
+| Storage Service | http://localhost:8001 |
+| Storage Swagger UI | http://localhost:8001/docs |
+| Storage OpenAPI | http://localhost:8001/openapi.json |
 
-Исходные значения и фактические имена параметров для каждого сервиса находятся в соответствующих `.env.example` и `app/config.py`. Можно вывести шаблон командой `Get-Content .env.example` из папки нужного сервиса.
+### 7.6. Просмотр логов
 
-Активация `.venv` через `Activate.ps1` **не обязательна**: все дальнейшие команды непосредственно используют интерпретатор из виртуального окружения.
-
-## 7. Запуск микросервисов
-
-**Для работы системы нужны два одновременно запущенных терминала PowerShell.** Каждый сервис запускается из собственной папки и занимает свой порт.
-
-### Терминал №1 — Storage Service
+Просмотр логов всех контейнеров:
 
 ```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\storage
-.\.venv\Scripts\python.exe run.py
+docker compose logs
 ```
 
-Ожидаемый фрагмент журнала:
-
-```text
-Uvicorn running on http://127.0.0.1:8001
-Application startup complete.
-```
-
-Не закрывайте терминал: процесс Storage Service должен продолжать работать.
-
-### Терминал №2 — API Gateway
-
-Откройте **новую вкладку PowerShell**:
+Просмотр логов в реальном времени:
 
 ```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\api-gateway
-.\.venv\Scripts\python.exe run.py
+docker compose logs -f
 ```
 
-Ожидаемый фрагмент журнала:
+Логи API Gateway:
+
+```powershell
+docker compose logs gateway
+```
+
+Логи Storage Service:
+
+```powershell
+docker compose logs storage
+```
+
+Для завершения просмотра логов используется Ctrl+C. Контейнеры при этом продолжают работать.
+
+### 7.7. Остановка контейнеров
+
+```powershell
+docker compose down
+```
+
+Команда останавливает и удаляет контейнеры, но сохраняет данные во внешнем Docker Volume.
+
+### 7.8. Повторный запуск
+
+```powershell
+docker compose up -d --wait
+```
+
+## 8. Dockerfile и безопасность
+
+Для каждого микросервиса создан отдельный многостадийный Dockerfile.
+
+### Стадия builder
+
+На стадии сборки выполняется установка необходимых Python-зависимостей из requirements.txt.
+
+### Финальная стадия
+
+Финальная стадия использует базовый образ:
+
+```dockerfile
+FROM python:3.12-slim
+```
+
+В итоговый образ копируются только необходимые зависимости и исходный код приложения.
+
+Это позволяет исключить ненужные инструменты разработки и уменьшить размер образа.
+
+### Непривилегированный пользователь
+
+Контейнеры запускаются от непривилегированного пользователя.
+
+Приложения не выполняются от root.
+
+Проверка пользователя:
+
+```powershell
+docker compose exec gateway id
+docker compose exec storage id
+```
+
+Идентификатор пользователя UID должен отличаться от 0.
+
+### Проверка размеров образов
+
+```powershell
+docker images lab6-gateway:latest
+docker images lab6-storage:latest
+```
+
+Требование лабораторной работы — размер каждого финального Docker-образа не более 200 МБ.
+
+Размер проверяется после сборки.
+
+### Файлы .dockerignore
+
+Для каждого сервиса используется собственный файл .dockerignore.
+
+Из контекста сборки исключаются:
+
+- Виртуальные окружения.
+- Кэши Python.
+- Локальные файлы конфигурации .env.
+- Тесты.
+- Служебные файлы Git.
+- Другие ненужные для запуска файлы.
+
+## 9. Конфигурация через переменные окружения
+
+Настройки сервисов загружаются с помощью pydantic-settings.
+
+В каждом микросервисе имеются файлы:
+
+- `.env.example` — шаблон настроек.
+- `app/config.py` — описание конфигурации.
+
+Реальные файлы `.env` исключены из Git.
+
+Docker Compose использует демонстрационные настройки из `.env.example` и переопределяет параметры, необходимые для работы внутри Docker.
+
+### Настройки API Gateway
+
+| Переменная | Значение в Docker |
+|---|---|
+| GATEWAY_HOST | 0.0.0.0 |
+| GATEWAY_PORT | 8000 |
+| GATEWAY_STORAGE_URL | http://storage:8001 |
+| GATEWAY_REQUEST_TIMEOUT | 5 |
+| GATEWAY_LOG_LEVEL | info |
+
+### Настройки Storage Service
+
+| Переменная | Значение в Docker |
+|---|---|
+| STORAGE_HOST | 0.0.0.0 |
+| STORAGE_PORT | 8001 |
+| STORAGE_DB_PATH | data/items.db |
+| STORAGE_LOG_LEVEL | info |
+
+Благодаря переменным окружения конфигурацию можно изменять без изменения исходного кода приложения.
+
+## 10. Healthcheck и порядок запуска
+
+Для обоих микросервисов настроена автоматическая проверка доступности.
+
+Healthcheck выполняет HTTP-запрос к `/openapi.json` внутри соответствующего контейнера с помощью стандартной библиотеки Python urllib.request.
+
+### Healthcheck Storage Service
 
 ```text
-Uvicorn running on http://127.0.0.1:8000
-Application startup complete.
+http://127.0.0.1:8001/openapi.json
 ```
 
-Не закрывайте и этот терминал, пока выполняете запросы.
+### Healthcheck API Gateway
 
-### Проверка запуска в браузере
+```text
+http://127.0.0.1:8000/openapi.json
+```
 
-| Сервис | Swagger UI | OpenAPI JSON |
+Параметры проверки:
+
+| Параметр | Значение |
+|---|---|
+| interval | 5s |
+| timeout | 3s |
+| retries | 10 |
+| start_period | 5s |
+
+API Gateway запускается только после успешного прохождения healthcheck сервиса Storage.
+
+Для этого используется:
+
+```yaml
+depends_on:
+  storage:
+    condition: service_healthy
+```
+
+Проверка состояния:
+
+```powershell
+docker compose ps
+```
+
+В ходе лабораторной работы оба контейнера успешно получили статус healthy.
+
+Healthcheck подтверждает доступность HTTP-интерфейса приложения.
+
+## 11. Постоянное хранение данных
+
+Storage Service использует SQLite.
+
+База данных внутри контейнера располагается по пути:
+
+```text
+/app/data/items.db
+```
+
+Для хранения используется внешний Docker Volume:
+
+```text
+lab6-storage-data
+```
+
+Конфигурация тома:
+
+```yaml
+volumes:
+  storage_data:
+    external: true
+    name: lab6-storage-data
+```
+
+Том подключается к контейнеру Storage:
+
+```yaml
+volumes:
+  - storage_data:/app/data
+```
+
+Это обеспечивает сохранение данных после:
+
+- Остановки контейнеров.
+- Перезапуска контейнеров.
+- Удаления контейнеров.
+- Пересоздания контейнеров.
+
+Не следует удалять Docker Volume вручную, если необходимо сохранить данные.
+
+### Проверка сохранности данных
+
+1. Создать товар через API Gateway.
+2. Запомнить идентификатор товара.
+3. Остановить контейнеры:
+
+```powershell
+docker compose down
+```
+
+4. Повторно запустить контейнеры:
+
+```powershell
+docker compose up -d --wait
+```
+
+5. Получить ранее созданный товар по идентификатору.
+
+Данные должны сохраниться.
+
+## 12. REST API
+
+Основные маршруты API Gateway:
+
+| Метод | Маршрут | Назначение |
 |---|---|---|
-| API Gateway | http://127.0.0.1:8000/docs | http://127.0.0.1:8000/openapi.json |
-| Storage Service | http://127.0.0.1:8001/docs | http://127.0.0.1:8001/openapi.json |
+| POST | /items | Создание товара |
+| GET | /items/{item_id} | Получение товара |
+| GET | /docs | Swagger UI |
+| GET | /openapi.json | OpenAPI-спецификация |
 
-Открывайте именно страницу `/docs`. Ответ `404 Not Found` на `/` или `/favicon.ico` не означает, что API сломан: для этих путей просто не предусмотрены обработчики.
+### Требования к данным
 
-Для остановки каждого сервиса нажмите `Ctrl + C` в терминале, где он работает.
+- Название товара должно быть непустым.
+- Максимальная длина названия — 100 символов.
+- Цена должна быть больше нуля.
+- Количество должно быть целым неотрицательным числом.
+- Идентификатор назначается автоматически.
 
-## 8. REST API и модели данных
+### Создание товара через Swagger UI
 
-Основные пользовательские операции API Gateway:
-
-| Метод | Маршрут | Назначение | Успешный код |
-|---|---|---|---|
-| `POST` | `/items` | Создать товар | `201 Created` |
-| `GET` | `/items/{item_id}` | Получить товар по идентификатору | `200 OK` |
-| `GET` | `/docs` | Открыть Swagger UI | `200 OK` |
-| `GET` | `/openapi.json` | Получить спецификацию OpenAPI | `200 OK` |
-
-### Модель создания товара
-
-```json
-{
-  "name": "MicroserviceMouse",
-  "price": 3500,
-  "quantity": 4
-}
-```
-
-Требования к данным:
-
-- `name` — непустая строка длиной не более 100 символов;
-- `price` — число строго больше нуля;
-- `quantity` — целое неотрицательное число;
-- `id` — идентификатор, назначаемый сервером, а не передаваемый клиентом при создании.
-
-Пример ответа сервера:
-
-```json
-{
-  "name": "MicroserviceMouse",
-  "price": 3500,
-  "quantity": 4,
-  "id": 1
-}
-```
-
-Идентификатор `id` может отличаться: это зависит от текущего содержимого базы данных.
-
-## 9. Сквозная проверка через Swagger UI
-
-Это фактически выполненная проверка двух микросервисов.
-
-### 9.1. Создание товара — POST
-
-1. Убедитесь, что работают Storage Service (`8001`) и API Gateway (`8000`).
-2. Откройте http://127.0.0.1:8000/docs.
-3. Найдите `POST /items` и нажмите **Try it out**.
-4. Укажите JSON:
-
-   ```json
-   {
-     "name": "MicroserviceMouse",
-     "price": 3500,
-     "quantity": 4
-   }
-   ```
-
-5. Нажмите **Execute**.
-6. Убедитесь, что сервер вернул **`201 Created`** и объект с полем `id`.
-
-На проверочном компьютере ответ содержал `id: 1`. В логах обоих серверов появилась запись:
+Открыть:
 
 ```text
-POST /items HTTP/1.1 201 Created
+http://localhost:8080/docs
 ```
 
-### 9.2. Получение товара — GET
-
-1. На той же странице Swagger UI найдите `GET /items/{item_id}`.
-2. Нажмите **Try it out**.
-3. Введите `item_id`, полученный при создании (в данном примере — `1`).
-4. Нажмите **Execute**.
-
-Ожидаемый ответ — **`200 OK`** с теми же данными:
-
-```json
-{
-  "name": "MicroserviceMouse",
-  "price": 3500,
-  "quantity": 4,
-  "id": 1
-}
-```
-
-В журналах работы сервисов была подтверждена цепочка:
-
-```text
-GET /items/1 HTTP/1.1 200 OK
-```
-
-Это подтверждает успешный межсервисный обмен по HTTP: клиент отправляет запрос в Gateway, Gateway обращается к Storage Service, а Storage Service читает запись из SQLite.
-
-## 10. Сквозная проверка через PowerShell
-
-В **третьем терминале PowerShell** можно выполнить запросы без браузера. Первые два терминала с серверами при этом должны оставаться запущенными.
-
-Создать товар:
-
-```powershell
-$body = @{
-    name = "PowerShellMouse"
-    price = 2500
-    quantity = 3
-} | ConvertTo-Json
-
-$item = Invoke-RestMethod -Uri "http://127.0.0.1:8000/items" -Method Post -ContentType "application/json" -Body $body
-$item
-```
-
-Получить созданный товар по идентификатору:
-
-```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/items/$($item.id)" -Method Get
-```
-
-Проверить несуществующий товар:
-
-```powershell
-try {
-    Invoke-RestMethod -Uri "http://127.0.0.1:8000/items/999999" -Method Get
-} catch {
-    Write-Host "HTTP request failed as expected: $($_.Exception.Message)"
-}
-```
-
-Для успешного создания ожидается `201`, для чтения — `200`, для отсутствующего товара — `404`. Код HTTP можно посмотреть в Swagger UI или в терминалах серверов.
-
-### Дополнительно: пример curl
-
-Следующий пример предназначен для Bash/Git Bash или Linux/macOS:
-
-```bash
-curl -i -X POST http://127.0.0.1:8000/items \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"CurlMouse","price":2000,"quantity":2}'
-
-curl -i http://127.0.0.1:8000/items/1
-```
-
-При использовании второго запроса замените `1` на идентификатор из ответа `POST`.
-
-## 11. Проверка ошибок и устойчивости
-
-API Gateway обрабатывает ошибки предсказуемо и возвращает соответствующий HTTP-код вместо необработанного исключения.
-
-| Ситуация | Код | Пояснение |
-|---|---|---|
-| Товар создан | `201` | Объект записан в SQLite |
-| Товар найден | `200` | Данные получены из Storage Service |
-| Запрошенный товар не существует | `404` | Ресурс не найден |
-| Некорректные входные данные | `422` | Ошибка валидации |
-| Storage Service недоступен | `503` | Gateway не может связаться с соседом |
-| Storage Service вернул недопустимый ответ | `502` | Gateway получил ошибочный ответ от соседнего сервиса |
-
-### 11.1. Проверка 404 Not Found
-
-В Swagger UI вызовите `GET /items/999999`. Ожидается `404 Not Found`.
-
-### 11.2. Проверка 422 Unprocessable Entity
-
-В `POST /items` укажите некорректное значение, например:
-
-```json
-{
-  "name": "Mouse",
-  "price": -100,
-  "quantity": 5
-}
-```
-
-Ожидается `422`, потому что цена должна быть положительной. Для `GET /items/0` также ожидается `422`, так как идентификатор должен быть больше нуля.
-
-### 11.3. Проверка 503 Service Unavailable
-
-1. Убедитесь, что оба сервиса первоначально работают.
-2. Остановите **только Storage Service** (`Ctrl + C` в терминале с портом `8001`).
-3. Оставьте API Gateway на порту `8000` запущенным.
-4. Повторите запрос `GET /items/1` через http://127.0.0.1:8000/docs.
-
-Ожидается ответ:
-
-```json
-{
-  "detail": "storage service unavailable"
-}
-```
-
-HTTP-код: **`503 Service Unavailable`**. В логах Gateway появляется понятная запись о недоступности Storage Service, без падения самого Gateway.
-
-5. Запустите Storage Service повторно:
-
-   ```powershell
-   cd C:\Users\admin\Downloads\lab5-microservices-manual\storage
-   .\.venv\Scripts\python.exe run.py
-   ```
-
-6. Повторите `GET /items/1`. Если товар остался в базе данных, ответ снова будет `200 OK`.
-
-Такое поведение (`200` → `503` → `200`) было продемонстрировано при проверке проекта.
-
-## 12. Слоистая архитектура и паттерны
-
-В каждом микросервисе выделены три слоя:
-
-- **`api/`** — HTTP-маршруты FastAPI, Pydantic-схемы, преобразование ошибок в HTTP-ответы.
-- **`domain/`** — модели предметной области и бизнес-правила, независимые от FastAPI и SQLite.
-- **`storage/`** — адаптеры доступа к данным: HTTP-клиент в Gateway и SQLite-репозиторий в Storage Service.
-
-Домен определяет интерфейс репозитория через `typing.Protocol` (`ItemRepository`). Конкретная реализация внедряется извне. В Storage Service используется `SQLiteItemRepository`, в Gateway — `HttpItemRepository`, а в тестах — поддельные реализации без реальной сети и БД.
-
-Так реализованы **Ports and Adapters**, **Repository Pattern** и **Dependency Injection**. Создание FastAPI-приложения и сборка зависимостей происходят через `create_app()` в `app/main.py`.
-
-Принципиальное разделение ответственности:
-
-- Gateway отвечает за внешний API, проверку и маршрутизацию запросов.
-- Storage Service отвечает за операции с данными и их сохранность.
-- Только Storage Service имеет доступ к SQLite.
-- Оба сервиса можно запускать и тестировать независимо.
-
-## 13. Конфигурация и логирование
-
-У каждого сервиса есть собственные `app/config.py` и `.env.example`. Для локального запуска создаётся `.env`, настройки загружаются через `BaseSettings` из `pydantic-settings`.
-
-В частности, Gateway получает из конфигурации адрес Storage Service и таймаут HTTP-вызова. Это позволяет изменять окружение, не редактируя исходный код клиента.
-
-Важные особенности:
-
-- `httpx` использует явный таймаут (при локальной проверке — `5.0` секунды).
-- Сетевые сбои переводятся в понятную ошибку недоступности соседнего сервиса.
-- Некорректные ответы соседа обрабатываются отдельно.
-- Уровень логирования задаётся настройками.
-- `.env` не публикуется в Git; для других пользователей сохраняется `.env.example`.
-
-В логи пишутся текстовые ASCII-сообщения. При недоступности Storage Service Gateway продолжает работать и возвращает управляемый ответ `503`.
-
-## 14. Автоматическое тестирование
-
-Тесты каждого сервиса выполняются **отдельно**, из его собственной папки, с Python его виртуального окружения. Для проверки тестов не требуется запускать оба Uvicorn-процесса.
-
-### 14.1. Тесты Storage Service
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\storage
-.\.venv\Scripts\python.exe -m pytest tests -v
-```
-
-Результат итоговой проверки:
-
-```text
-18 passed, 1 warning
-```
-
-Тестируются доменные правила, HTTP API, валидация, чтение и запись данных в SQLite, а также сохранность данных при создании нового экземпляра репозитория.
-
-### 14.2. Тесты API Gateway
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\api-gateway
-.\.venv\Scripts\python.exe -m pytest tests -v
-```
-
-Результат итоговой проверки:
-
-```text
-28 passed, 1 warning
-```
-
-Тесты проверяют домен, маршруты FastAPI и HTTP-клиент на `httpx`, в том числе обработку `404`, `422`, `500`, `503`, таймаутов, сетевых ошибок и неверного ответа соседнего сервиса.
-
-**Суммарно: 46 успешно пройденных тестов.**
-
-### 14.3. Предупреждение StarletteDeprecationWarning
-
-При запуске обоих наборов тестов наблюдалось предупреждение библиотеки FastAPI/Starlette:
-
-```text
-StarletteDeprecationWarning: Using 'httpx' with 'starlette.testclient' is deprecated; install 'httpx2' instead.
-```
-
-Это **предупреждение об изменениях зависимости, а не провал тестов**. Оно возникало в коде установленной библиотеки `fastapi.testclient` и не помешало выполнению тестов. Итоговый статус проверки — `passed`.
-
-### 14.4. Покрытие кода
-
-Для Storage Service:
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\storage
-.\.venv\Scripts\python.exe -m pytest tests --cov=app --cov-report=term-missing
-```
-
-Результат: **99% покрытия** (по итоговому запуску).
-
-Для API Gateway:
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\api-gateway
-.\.venv\Scripts\python.exe -m pytest tests --cov=app --cov-report=term-missing
-```
-
-Результат: **95% покрытия** (по итоговому запуску).
-
-Покрытие — доля выполненных операторами тестов строк кода; оно не является гарантией отсутствия ошибок.
-
-### 14.5. Проверка качества кода Ruff
-
-Storage Service:
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\storage
-.\.venv\Scripts\python.exe -m ruff check app tests
-.\.venv\Scripts\python.exe -m ruff format --check app tests
-```
-
-API Gateway:
-
-```powershell
-cd C:\Users\admin\Downloads\lab5-microservices-manual\api-gateway
-.\.venv\Scripts\python.exe -m ruff check app tests
-.\.venv\Scripts\python.exe -m ruff format --check app tests
-```
-
-В итоговых проверках оба сервиса прошли `ruff check` и `ruff format --check`.
-
-Если Ruff показывает, что файлы требуют форматирования, можно выполнить внутри соответствующего сервиса:
-
-```powershell
-.\.venv\Scripts\python.exe -m ruff format app tests
-```
-
-После этого повторите `ruff format --check`.
-
-## 15. Возможные проблемы и решения
-
-### Ошибка `No suitable Python runtime found`
-
-Команда вида `py -3.12 -m venv .venv` не найдёт Python 3.12, если эта версия не зарегистрирована в Python Launcher.
-
-Решение:
-
-```powershell
-py --list
-py -3 --version
-py -3 -m venv .venv
-```
-
-При выполненной работе `py -3` выбирал Python 3.14.3.
-
-### Ошибка `...\ .venv\Scripts\python.exe` не распознана
-
-Проверьте, что файл действительно существует:
-
-```powershell
-Test-Path .\.venv\Scripts\python.exe
-Get-ChildItem .\.venv
-```
-
-Если внутри `.venv` есть `bin`, `include`, `lib`, но нет `Scripts`, окружение, вероятно, создавалось Unix-сборкой Python (например, MSYS). На проверочном компьютере именно это и произошло после `python -m venv .venv`.
-
-Чтобы пересоздать **только повреждённое окружение конкретного сервиса** (из его папки), выполните:
-
-```powershell
-Remove-Item -Recurse -Force .venv
-py -3 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-Не удаляйте `.env` и `data/items.db`, если хотите сохранить настройки и товары.
-
-### Ошибка при старте: отсутствуют обязательные настройки
-
-Убедитесь, что `.env` существует в папке **каждого** микросервиса:
-
-```powershell
-Test-Path .env
-Get-Content .env.example
-```
-
-Если `.env` отсутствует:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Не запускайте сервис из корня общего репозитория, если конфигурация и `run.py` рассчитаны на запуск из папки сервиса.
-
-### API Gateway возвращает `503 Service Unavailable`
-
-Проверьте, что Storage Service работает на порту `8001`, а адрес Storage Service в `api-gateway/.env` совпадает с ним. При остановленном Storage Service статус `503` является ожидаемым поведением, а не падением Gateway.
-
-### В браузере виден `404 Not Found`
-
-Если запрошены `/` или `/favicon.ico`, это допустимо. Для документации перейдите по адресу `http://127.0.0.1:8000/docs`. Для получения товара используйте путь `/items/{item_id}` с настоящим идентификатором.
-
-### Порт `8000` или `8001` занят
-
-Возможно, уже запущен другой экземпляр сервиса. Остановите прежний процесс `Ctrl + C` в соответствующем терминале. При изменении портов необходимо согласованно обновить `.env` обоих сервисов, чтобы Gateway обращался к правильному адресу Storage Service.
-
-### PowerShell не разрешает `Activate.ps1`
-
-Активация для этого проекта необязательна. Используйте команды вида:
-
-```powershell
-.\.venv\Scripts\python.exe run.py
-.\.venv\Scripts\python.exe -m pytest tests -v
-```
-
-Если нужна именно активация окружения, изменение политики выполнения скриптов следует применять только при необходимости и с учётом правил безопасности системы.
-
-## 16. Git и публикация проекта
-
-Исходный код хранится в Git-репозитории на GitFlic:
-
-https://gitflic.ru/project/lilrax/lab5-microservices-manual
-
-Для проекта были созданы отдельные коммиты с настройками, реализацией Storage Service, реализацией API Gateway, тестами и документацией.
-
-После редактирования `README.md` в **корне репозитория** можно выполнить:
-
-```powershell
-git status
-git add README.md
-git commit -m "docs: update Windows setup and run instructions"
-git push origin main
-```
-
-Если команда `git status` выдаёт `fatal: not a git repository`, сначала перейдите в корень проекта, где находится каталог `.git`.
-
-В `.gitignore` исключены локальные данные: виртуальные окружения `.venv`, файлы `.env`, базы SQLite `.db`, файлы покрытия и кэши. Шаблоны `.env.example` и `storage/data/.gitkeep` остаются в репозитории.
-
-## 17. Результаты выполнения лабораторной работы
-
-В ходе работы:
-
-1. Разработаны два независимо запускаемых FastAPI-сервиса.
-2. Реализовано синхронное взаимодействие по HTTP/JSON через `httpx`.
-3. Реализованы создание и чтение товаров через API Gateway.
-4. Данные сохраняются в SQLite на стороне Storage Service.
-5. Выделены слои `api`, `domain`, `storage`, используются `Protocol` и внедрение зависимостей.
-6. Конфигурация вынесена в `.env` и загружается через `pydantic-settings`.
-7. Реализованы таймауты и контролируемая обработка сетевых ошибок (`503`, `502`).
-8. Проверены успешные запросы `POST /items` (`201`) и `GET /items/1` (`200`).
-9. Подтверждено восстановление доступа после перезапуска Storage Service (`200` → `503` → `200`).
-10. Выполнены **18 тестов Storage Service** и **28 тестов API Gateway**; все успешно пройдены.
-11. Достигнуто покрытие кода **99%** для Storage Service и **95%** для API Gateway.
-12. Выполнены проверки Ruff, подготовлены `README.md` и `docs/architecture.md`, исходный код размещён на GitFlic.
-
-## 18. Заключение
-
-Лабораторная работа №5 демонстрирует создание микросервисной архитектуры на Python. В отличие от одного монолитного приложения система разделена на два процесса с собственными API, настройками и зонами ответственности.
-
-API Gateway принимает внешние запросы и взаимодействует со Storage Service по HTTP, а Storage Service выполняет операции с данными и отвечает за их сохранение в SQLite. Такое разделение упрощает независимое тестирование компонентов и позволяет отдельно обрабатывать ошибки сетевого взаимодействия.
-
-**Итог:** два микросервиса успешно запущены на Windows с Python 3.14.3, обмен данными работает, предусмотрена корректная обработка недоступности соседнего сервиса, все 46 тестов пройдены.
-
-
-
----
-
-## Лабораторная работа №6 — Docker и Docker Compose
-
-### Цель работы
-
-Контейнеризировать два Python-микросервиса с помощью Docker
-и организовать их совместный запуск через Docker Compose.
-
-### Архитектура
-
-В системе работают два микросервиса:
-
-- **API Gateway** — принимает HTTP-запросы и обращается к Storage Service.
-- **Storage Service** — работает с базой данных SQLite.
-
-Сервисы обмениваются HTTP-запросами через внутреннюю сеть Docker.
-
-### Используемые технологии
-
-- Python 3.12
-- FastAPI
-- Docker
-- Docker Compose
-- SQLite
-- Docker Volumes
-
-### Запуск проекта
-
-Для запуска необходим установленный и работающий Docker Desktop.
-
-Откройте терминал в корневой папке проекта.
-
-1. Создайте Docker volume для хранения базы данных:
-
-   ```powershell
-   docker volume create lab6-storage-data
-   ```
-
-2. Соберите образы и запустите микросервисы:
-
-   ```powershell
-   docker compose up --build -d
-   ```
-
-3. Проверьте состояние контейнеров:
-
-   ```powershell
-   docker compose ps
-   ```
-
-### Проверка работы
-
-После запуска доступны:
-
-- API Gateway: http://localhost:8080/docs
-- Storage Service: http://localhost:8001/docs
-
-Через API Gateway можно создать товар:
+Выбрать POST /items, нажать Try it out и указать JSON:
 
 ```json
 {
@@ -832,29 +598,583 @@ API Gateway принимает внешние запросы и взаимоде
 }
 ```
 
-Запрос: `POST http://localhost:8080/items`
+Ожидаемый HTTP-код:
 
-Для получения созданного товара используется запрос:
-
-`GET http://localhost:8080/items/{item_id}`
-
-### Хранение данных
-
-База данных SQLite хранится в Docker volume `lab6-storage-data`.
-
-Данные сохраняются после остановки и пересоздания контейнеров.
-
-### Остановка проекта
-
-```powershell
-docker compose down
+```text
+201 Created
 ```
 
-Команда останавливает и удаляет контейнеры, но сохраняет базу данных
-в Docker volume.
+Пример ответа:
 
-Для повторного запуска используйте:
+```json
+{
+  "id": 1,
+  "name": "Mouse",
+  "price": 750,
+  "quantity": 3
+}
+```
+
+Идентификатор может отличаться в зависимости от содержимого базы данных.
+
+### Получение товара
+
+В Swagger UI выбрать:
+
+```text
+GET /items/{item_id}
+```
+
+Указать идентификатор, полученный при создании товара.
+
+Ожидаемый результат:
+
+```text
+200 OK
+```
+
+### Проверка через PowerShell
+
+Создание товара:
 
 ```powershell
-docker compose up -d
+$body = @{
+    name = "PowerShellMouse"
+    price = 2500
+    quantity = 3
+} | ConvertTo-Json
+
+$item = Invoke-RestMethod `
+    -Uri "http://localhost:8080/items" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body $body
+
+$item
 ```
+
+Получение товара:
+
+```powershell
+Invoke-RestMethod `
+    -Uri "http://localhost:8080/items/$($item.id)" `
+    -Method Get
+```
+
+## 13. Обработка ошибок и устойчивость
+
+Приложение корректно обрабатывает ошибки и возвращает соответствующие HTTP-коды.
+
+| HTTP-код | Описание |
+|---|---|
+| 200 | Товар успешно получен |
+| 201 | Товар успешно создан |
+| 404 | Товар не найден |
+| 422 | Некорректные входные данные |
+| 502 | Некорректный ответ Storage Service |
+| 503 | Storage Service недоступен |
+
+### Проверка ошибки 404
+
+Выполнить запрос:
+
+```text
+GET /items/999999
+```
+
+Ожидаемый результат:
+
+```text
+404 Not Found
+```
+
+### Проверка ошибки 422
+
+Передать некорректные данные:
+
+```json
+{
+  "name": "Mouse",
+  "price": -100,
+  "quantity": 5
+}
+```
+
+Ожидаемый результат:
+
+```text
+422 Unprocessable Entity
+```
+
+### Проверка ошибки 503
+
+Остановить только Storage Service:
+
+```powershell
+docker compose stop storage
+```
+
+Выполнить запрос через API Gateway.
+
+Ожидаемый результат:
+
+```text
+503 Service Unavailable
+```
+
+API Gateway продолжает работать и корректно обрабатывает недоступность соседнего сервиса.
+
+Повторно запустить Storage:
+
+```powershell
+docker compose up -d --wait storage
+```
+
+После восстановления Storage запрос существующего товара должен снова возвращать 200 OK.
+
+Все сообщения приложения и журналы работы используют ASCII.
+
+## 14. Локальные проверки качества кода
+
+Для каждого микросервиса предусмотрено отдельное виртуальное окружение.
+
+Проверки выполняются с помощью:
+
+- Ruff — проверка качества кода.
+- mypy — статическая проверка типов.
+- pytest — автоматические тесты.
+
+В локальном окружении Windows используется Python 3.14.3.
+
+В Docker и GitHub Actions используется Python 3.12.
+
+### 14.1. Проверка API Gateway
+
+В корне проекта выполнить:
+
+```powershell
+cd .\api-gateway
+
+py -3.14 -m venv .venv
+
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+.\.venv\Scripts\python.exe -m ruff check .
+
+.\.venv\Scripts\python.exe -m mypy .
+
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Результаты:
+
+```text
+All checks passed!
+Success: no issues found in 18 source files
+28 passed, 1 warning
+```
+
+Вернуться в корень проекта:
+
+```powershell
+cd ..
+```
+
+### 14.2. Проверка Storage Service
+
+```powershell
+cd .\storage
+
+py -3.14 -m venv .venv
+
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+.\.venv\Scripts\python.exe -m ruff check .
+
+.\.venv\Scripts\python.exe -m mypy .
+
+.\.venv\Scripts\python.exe -m pytest -v
+```
+
+Результаты:
+
+```text
+All checks passed!
+Success: no issues found in 16 source files
+18 passed, 1 warning
+```
+
+Вернуться в корень проекта:
+
+```powershell
+cd ..
+```
+
+### 14.3. Итоговые результаты тестирования
+
+| Проверка | API Gateway | Storage Service |
+|---|---|---|
+| Ruff | Passed | Passed |
+| mypy | Passed | Passed |
+| pytest | 28 passed | 18 passed |
+
+Всего успешно выполнено 46 автоматических тестов.
+
+Предупреждение StarletteDeprecationWarning связано с используемыми библиотеками FastAPI и Starlette и не препятствует успешному выполнению тестов.
+
+### 14.4. Настройка mypy
+
+В каждом микросервисе создан файл mypy.ini.
+
+```ini
+[mypy]
+plugins = pydantic.mypy
+```
+
+Плагин обеспечивает корректную статическую проверку моделей Pydantic и настроек BaseSettings.
+
+### 14.5. Настройка тестового окружения
+
+В папке tests каждого микросервиса создан файл conftest.py.
+
+Он задаёт необходимые переменные окружения для автоматического запуска тестов.
+
+Это позволяет выполнять тесты без ручного создания файлов .env.
+
+Для Storage Service по умолчанию используется отдельная тестовая база данных test_storage.db.
+
+Не следует передавать тестам настройки рабочей базы данных.
+
+### 14.6. Проверка покрытия кода
+
+В папке соответствующего микросервиса выполнить:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest --cov=app --cov-report=term-missing
+```
+
+## 15. GitHub Actions
+
+Для автоматической проверки и сборки проекта настроен GitHub Actions.
+
+Конфигурация расположена в файле:
+
+```text
+.github/workflows/ci.yml
+```
+
+Название конвейера:
+
+```text
+lab6-ci
+```
+
+Конвейер автоматически запускается:
+
+- При отправке изменений в ветку main.
+- При создании и обновлении Pull Request.
+
+Используется среда ubuntu-latest и Python 3.12.
+
+### Архитектура CI
+
+```text
+                 Git Push
+                    |
+                    v
+               GitHub Actions
+                    |
+          +---------+---------+
+          |                   |
+          v                   v
+      API Gateway        Storage Service
+          |                   |
+          v                   v
+      Python 3.12         Python 3.12
+          |                   |
+          v                   v
+      Create venv         Create venv
+          |                   |
+          v                   v
+      Install deps        Install deps
+          |                   |
+          v                   v
+         Ruff                Ruff
+          |                   |
+          v                   v
+         mypy                mypy
+          |                   |
+          v                   v
+        pytest              pytest
+          |                   |
+          v                   v
+     Docker build        Docker build
+          |                   |
+          +---------+---------+
+                    |
+                    v
+                 Success
+```
+
+### Этапы автоматического конвейера
+
+| Этап | Назначение |
+|---|---|
+| Checkout repository | Получение исходного кода |
+| Set up Python | Установка Python 3.12 |
+| Install dependencies | Создание чистого venv и установка зависимостей |
+| Ruff | Проверка качества кода |
+| Mypy | Проверка типов |
+| Pytest | Выполнение автоматических тестов |
+| Docker build | Сборка Docker-образа |
+
+Для каждого микросервиса создаётся отдельная задача через strategy.matrix.
+
+Проверки выполняются независимо друг от друга.
+
+При возникновении ошибки обязательного этапа соответствующая задача завершается со статусом Failure.
+
+Сборка Docker-образа выполняется только после успешного прохождения предыдущих проверок соответствующего микросервиса.
+
+### Результаты GitHub Actions
+
+В ходе лабораторной работы были успешно выполнены автоматические конвейеры для обоих микросервисов.
+
+Результаты доступны по ссылке:
+
+https://github.com/lilrax/lab6-docker-compose/actions
+
+Успешный запуск GitHub Actions подтверждает работоспособность автоматических проверок и сборки Docker-образов.
+
+## 16. Запуск без Docker
+
+При необходимости микросервисы можно запускать отдельно, как в лабораторной работе №5.
+
+В этом случае API Gateway использует порт 8000 вместо 8080.
+
+Для каждого сервиса необходимо создать виртуальное окружение и установить зависимости.
+
+В папке каждого микросервиса создать .env из шаблона, если файл ещё отсутствует:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### Терминал №1 — Storage Service
+
+```powershell
+cd .\storage
+.\.venv\Scripts\python.exe run.py
+```
+
+Адрес:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+### Терминал №2 — API Gateway
+
+Из корня проекта:
+
+```powershell
+cd .\api-gateway
+.\.venv\Scripts\python.exe run.py
+```
+
+Адрес:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Для остановки процессов используется Ctrl+C.
+
+Не следует одновременно запускать локальный Storage Service и Docker-контейнер Storage на одном порту 8001.
+
+## 17. Git и публикация проекта
+
+Основной репозиторий лабораторной работы расположен на GitFlic.
+
+GitHub используется для выполнения автоматических проверок GitHub Actions.
+
+В исходном локальном проекте настроены три удалённых репозитория.
+
+| Remote | Назначение |
+|---|---|
+| origin | Лабораторная №5 на GitFlic |
+| lab6 | Лабораторная №6 на GitFlic |
+| github | Лабораторная №6 на GitHub |
+
+Проверка удалённых репозиториев:
+
+```powershell
+git remote -v
+```
+
+Проверка состояния проекта:
+
+```powershell
+git status
+```
+
+Пример сохранения изменений:
+
+```powershell
+git add README.md
+
+git commit -m "docs: update lab6 documentation"
+
+git push lab6 main
+
+git push github main
+```
+
+После отправки изменений в GitHub автоматически запускается GitHub Actions.
+
+При новом клонировании репозитория имя удалённого репозитория может быть origin. Необходимо ориентироваться на результат команды git remote -v.
+
+Изменения лабораторной №6 не должны отправляться в репозиторий лабораторной №5.
+
+### Исключение локальных файлов из Git
+
+Файл .gitignore исключает:
+
+- .venv
+- .env
+- __pycache__
+- .pytest_cache
+- .mypy_cache
+- .ruff_cache
+- .coverage
+- Файлы баз данных SQLite.
+
+Шаблоны .env.example и файлы .gitkeep остаются в репозитории.
+
+## 18. Возможные ошибки и решения
+
+### Docker Engine недоступен
+
+Необходимо запустить Docker Desktop.
+
+Проверить состояние:
+
+```powershell
+docker info
+```
+
+### Docker Volume не найден
+
+Создать необходимый том:
+
+```powershell
+docker volume create lab6-storage-data
+```
+
+### Контейнер не получает статус healthy
+
+Проверить состояние и логи:
+
+```powershell
+docker compose ps
+docker compose logs
+```
+
+### Порт уже занят
+
+Необходимо остановить другой процесс или контейнер, использующий соответствующий порт.
+
+Проверка контейнеров:
+
+```powershell
+docker ps
+```
+
+### В виртуальном окружении отсутствует Scripts
+
+Причиной может быть использование Python из MSYS2.
+
+Проверить доступные интерпретаторы:
+
+```powershell
+py -0p
+where.exe python
+```
+
+Для создания Windows-окружения использовать обычный Python:
+
+```powershell
+py -3.14 -m venv .venv
+```
+
+### Отсутствуют обязательные переменные окружения
+
+Для локального запуска необходимо создать .env из шаблона:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Для автоматических тестов настройки предоставляются файлами conftest.py.
+
+### API Gateway возвращает 503
+
+Необходимо проверить состояние Storage Service:
+
+```powershell
+docker compose ps
+docker compose logs storage
+```
+
+### GitHub Actions не запускается
+
+Необходимо проверить наличие файла:
+
+```text
+.github/workflows/ci.yml
+```
+
+И убедиться, что изменения отправлены именно на GitHub.
+
+Отправка изменений только на GitFlic не запускает GitHub Actions.
+
+## 19. Результаты выполнения лабораторной работы
+
+В ходе выполнения лабораторной работы:
+
+1. Контейнеризированы два микросервиса на FastAPI.
+2. Созданы многостадийные Dockerfile.
+3. Использован базовый образ python:3.12-slim.
+4. Настроен запуск от непривилегированного пользователя.
+5. Созданы файлы .dockerignore.
+6. Настроен совместный запуск сервисов через Docker Compose.
+7. Организовано взаимодействие сервисов через внутреннюю сеть Docker.
+8. Настроено постоянное хранение SQLite через Docker Volume.
+9. Реализован healthcheck для обоих микросервисов.
+10. Настроена зависимость запуска через service_healthy.
+11. Конфигурация вынесена в переменные окружения.
+12. Успешно выполнены проверки Ruff.
+13. Успешно выполнены проверки mypy.
+14. Успешно выполнены 46 автоматических тестов.
+15. Настроен автоматический конвейер GitHub Actions.
+16. Подтверждена успешная автоматическая сборка Docker-образов.
+17. Исходный код размещён на GitFlic и GitHub.
+18. Подготовлена документация по запуску и проверке проекта.
+
+## 20. Заключение
+
+В ходе лабораторной работы были изучены технологии Docker, Docker Compose и GitHub Actions.
+
+Приложение, разработанное в лабораторной работе №5, было контейнеризировано и адаптировано для совместного запуска микросервисов.
+
+Docker Compose обеспечивает управление контейнерами, сетевое взаимодействие, проверку доступности сервисов и постоянное хранение данных.
+
+GitHub Actions обеспечивает автоматическую проверку качества кода, аннотаций типов, выполнение тестов и сборку Docker-образов.
+
+Оба микросервиса успешно запускаются в Docker-контейнерах и имеют статус healthy.
+
+Все 46 локальных автоматических тестов успешно пройдены.
+
+Автоматический конвейер GitHub Actions успешно выполнен.
+
+Основной репозиторий проекта размещён на GitFlic.
