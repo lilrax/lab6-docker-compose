@@ -4,6 +4,7 @@ services:
 
   # Микросервис хранения товаров.
   storage:
+
     # Собираем образ из папки storage.
     build:
       context: ./storage
@@ -16,13 +17,13 @@ services:
       - ./storage/.env.example
 
     environment:
-      # Разрешаем подключения к Storage внутри сети Docker.
+      # Разрешаем подключения внутри сети Docker.
       STORAGE_HOST: "0.0.0.0"
 
       # Файл базы SQLite находится на подключённом томе.
       STORAGE_DB_PATH: "data/items.db"
 
-    # Порт ноутбука 8001 связан с портом контейнера 8001.
+    # Пробрасываем порт Storage на компьютер.
     ports:
       - "8001:8001"
 
@@ -30,24 +31,34 @@ services:
     volumes:
       - storage_data:/app/data
 
-    # Проверяем, готов ли Storage принимать HTTP-запросы.
+    # Проверяем доступность Storage Service.
     healthcheck:
       test:
         - CMD
         - python
         - -c
         - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/openapi.json', timeout=3)"
+
+      # Интервал между проверками.
       interval: 5s
+
+      # Максимальное время выполнения проверки.
       timeout: 3s
+
+      # Допустимое количество неудачных проверок.
       retries: 10
+
+      # Время на первоначальный запуск приложения.
       start_period: 5s
 
   # Микросервис, принимающий запросы клиента.
   gateway:
+
     # Собираем образ из папки api-gateway.
     build:
       context: ./api-gateway
 
+    # Имя Docker-образа.
     image: lab6-gateway:latest
 
     # Загружаем настройки API Gateway.
@@ -55,24 +66,46 @@ services:
       - ./api-gateway/.env.example
 
     environment:
+      # Разрешаем подключения внутри сети Docker.
       GATEWAY_HOST: "0.0.0.0"
 
       # Обращаемся к Storage по имени сервиса Docker,
       # а не через localhost.
       GATEWAY_STORAGE_URL: "http://storage:8001"
 
-    # Порт 8080 ноутбука направляем на порт 8000 контейнера.
+    # Порт 8080 компьютера направляем
+    # на порт 8000 контейнера.
     ports:
       - "8080:8000"
 
-    # Gateway запускается после готовности Storage.
+    # Gateway запускается только после готовности Storage.
     depends_on:
       storage:
         condition: service_healthy
 
+    # Проверяем доступность API Gateway.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)"
+
+      # Интервал между проверками.
+      interval: 5s
+
+      # Максимальное время выполнения проверки.
+      timeout: 3s
+
+      # Допустимое количество неудачных проверок.
+      retries: 10
+
+      # Время на первоначальный запуск приложения.
+      start_period: 5s
 
 # Подключаем существующий Docker volume.
-# Он уже содержит нашу базу SQLite с товаром Notebook.
+# Данные SQLite сохраняются при перезапуске
+# и пересоздании контейнеров.
 volumes:
   storage_data:
     external: true
